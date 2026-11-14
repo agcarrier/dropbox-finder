@@ -80,9 +80,9 @@ main{display:grid;gap:14px;padding-bottom:28px}
 
 /* Result plates, styled after the pickup-times plate on a box */
 ol{list-style:none;margin:0;padding:0;display:grid;gap:10px}
-li{background:var(--plate);border:1px solid var(--line);border-left:5px solid var(--line);border-radius:10px;padding:14px 16px 12px;cursor:pointer}
-li:hover{border-left-color:var(--enamel)}
-li.active{border-color:var(--enamel);border-left-color:var(--enamel)}
+li{background:var(--plate);border:1px solid var(--line);border-radius:10px;padding:14px 16px 12px;cursor:pointer}
+li:hover{border-color:var(--muted)}
+li.active{border-color:var(--enamel);box-shadow:0 0 0 1px var(--enamel)}
 li:focus-visible{outline-offset:3px}
 .row{display:flex;justify-content:space-between;gap:12px;align-items:baseline}
 .addr{font-weight:800;font-size:1.08rem;line-height:1.25}
