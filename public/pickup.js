@@ -33,3 +33,10 @@ export const clock = min => {
   const h = Math.floor(min / 60), m = min % 60;
   return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
 };
+
+// "Mo-Fr 16:30; Sa 10:30" -> "Mon–Fri 4:30 PM, Sat 10:30 AM"
+const NAME = { Mo: "Mon", Tu: "Tue", We: "Wed", Th: "Thu", Fr: "Fri", Sa: "Sat", Su: "Sun" };
+export const schedule = t => t
+  ? t.replace(/\b(Mo|Tu|We|Th|Fr|Sa|Su)\b/g, d => NAME[d]).replace(/(\w{3})-(\w{3})/g, "$1–$2")
+      .replace(/(\d\d):(\d\d)/g, (_, h, m) => clock(+h * 60 + +m)).replace(/,(?=\d)/g, " & ").replace(/;\s*/g, ", ")
+  : "Pickup times not listed";

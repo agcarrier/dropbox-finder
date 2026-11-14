@@ -4,76 +4,155 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Drop Box Finder</title>
-<meta name="description" content="Find the nearest USPS blue collection box and its pickup times.">
+<meta name="description" content="Find the nearest blue collection box and when it's picked up next.">
+<meta property="og:title" content="Drop Box Finder">
+<meta property="og:description" content="The nearest blue collection boxes, and when each one is picked up next.">
+<meta property="og:image" content="https://boxes.andrewcarrier.dev/og.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:url" content="https://boxes.andrewcarrier.dev/">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#12336B">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Overpass:wght@400;600;800&display=swap">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
-:root{--bg:#f6f7f9;--card:#fff;--ink:#14181f;--muted:#5b6472;--line:#e2e5ea;--blue:#1f4fa3;--blue-ink:#fff;--warn:#9a5b00;--ok:#1d7a3a}
-@media (prefers-color-scheme:dark){:root{--bg:#0f1216;--card:#181c22;--ink:#e8ebef;--muted:#9aa3b0;--line:#2a3039;--blue:#5b8be0;--blue-ink:#0b1220;--warn:#e0a648;--ok:#5cc47e}}
+:root{
+  --page:#E9EDF2; --plate:#FCFDFE; --ink:#18212E; --muted:#566273; --line:#D5DCE5;
+  --enamel:#1D4E9E; --lid:#12336B; --slot:#0B2148; --on-blue:#F3F6FB; --on-blue-muted:#B9C8E3;
+  --go:#1C7A43; --go-bg:#E3F3E8; --note:#8A5300; --here:#D2423A; --ring:#FFC94A;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --page:#10151C; --plate:#19202A; --ink:#E7ECF2; --muted:#9AA6B6; --line:#2B3442;
+  --enamel:#3A6CC0; --lid:#183E80; --slot:#0B1E40; --go:#62C98A; --go-bg:#173323; --note:#E7A94B;
+}}
+:root[data-theme="dark"]{
+  --page:#10151C; --plate:#19202A; --ink:#E7ECF2; --muted:#9AA6B6; --line:#2B3442;
+  --enamel:#3A6CC0; --lid:#183E80; --slot:#0B1E40; --go:#62C98A; --go-bg:#173323; --note:#E7A94B;
+}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-header{padding:20px 16px 12px;max-width:960px;margin:auto}
-h1{margin:0 0 4px;font-size:1.5rem;letter-spacing:-.01em}
-header p{margin:0;color:var(--muted)}
-.controls{display:flex;flex-wrap:wrap;gap:8px;padding:0 16px 12px;max-width:960px;margin:auto}
-button,input{font:inherit;border-radius:10px;border:1px solid var(--line);padding:10px 14px;background:var(--card);color:var(--ink)}
-button.primary{background:var(--blue);color:var(--blue-ink);border-color:var(--blue);font-weight:600}
-form{display:flex;gap:8px;flex:1;min-width:240px}
-input{flex:1;min-width:0}
-#status{max-width:960px;margin:auto;padding:0 16px 8px;color:var(--muted);min-height:1.5em}
-#status.err{color:var(--warn)}
-main{max-width:960px;margin:auto;padding:0 16px 32px;display:grid;gap:12px}
-@media (min-width:800px){main{grid-template-columns:1fr 1fr}#map{height:calc(100vh - 200px)!important;position:sticky;top:12px}}
-#map{height:320px;border-radius:12px;border:1px solid var(--line)}
-ol{list-style:none;margin:0;padding:0;display:grid;gap:8px}
-li{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;cursor:pointer}
-li:focus-visible,li.active{outline:2px solid var(--blue)}
-.row{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
-.addr{font-weight:600}
-.dist{color:var(--blue);font-weight:600;white-space:nowrap}
-.meta{color:var(--muted);font-size:.9rem;margin-top:2px}
-.note{color:var(--warn);font-size:.85rem;margin-top:4px}
-.next{font-size:.9rem;margin-top:2px}
-.next.today{color:var(--ok);font-weight:600}
-.links{display:flex;gap:14px;align-items:center}
-button.share{padding:0;border:0;background:none;color:var(--blue);text-decoration:underline;font-size:.9rem;cursor:pointer}
-label.toggle{display:flex;align-items:center;gap:6px;color:var(--ink);white-space:nowrap}
-label.toggle input{flex:none;width:18px;height:18px;accent-color:var(--blue)}
-a{color:var(--blue)}
-footer{max-width:960px;margin:auto;padding:0 16px 24px;color:var(--muted);font-size:.8rem}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--page);color:var(--ink);font:400 16px/1.5 Overpass,system-ui,sans-serif;font-variant-numeric:tabular-nums}
+a{color:var(--enamel)}
+:focus-visible{outline:3px solid var(--enamel);outline-offset:2px}
+.wrap{max-width:1120px;margin:0 auto;padding:0 16px}
+
+/* The lid: the domed top of a collection box, with the search set into it as the slot */
+.lid{margin-top:16px;background:var(--lid);color:var(--on-blue);
+  border-radius:clamp(56px,14vw,160px) clamp(56px,14vw,160px) 14px 14px / 64px 64px 14px 14px;
+  padding:clamp(28px,5vw,44px) clamp(18px,5vw,56px) 22px;position:relative}
+.lid :focus-visible{outline-color:var(--ring)}
+.lid h1{margin:0;font-weight:800;font-size:clamp(1.9rem,1.2rem + 3vw,3rem);line-height:1.05;letter-spacing:-.02em}
+.lid p{margin:.4rem 0 0;color:var(--on-blue-muted);font-size:1.05rem;max-width:42ch}
+.slot{display:flex;gap:6px;margin-top:22px;padding:6px;background:var(--slot);border-radius:12px;
+  box-shadow:inset 0 3px 0 rgba(0,0,0,.35),0 1px 0 rgba(255,255,255,.08)}
+.slot input{flex:1;min-width:0;font:inherit;font-size:1.05rem;color:#fff;background:transparent;border:0;padding:10px 12px;border-radius:8px}
+.slot input::placeholder{color:#8EA3C7}
+.slot input:focus-visible{outline:2px solid var(--ring);outline-offset:0}
+button{font:inherit;cursor:pointer}
+.slot button{border:0;border-radius:8px;padding:10px 18px;font-weight:800;background:var(--on-blue);color:var(--lid)}
+.under{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;margin-top:14px}
+.locate{display:inline-flex;align-items:center;gap:8px;border:1.5px solid rgba(243,246,251,.45);background:transparent;color:var(--on-blue);
+  border-radius:999px;padding:7px 14px 6px;font-weight:600}
+.locate:hover{border-color:var(--on-blue)}
+.locate svg{width:16px;height:16px}
+.switch{display:inline-flex;align-items:center;gap:10px;font-weight:600;cursor:pointer;user-select:none}
+.switch input{appearance:none;margin:0;width:42px;height:24px;border-radius:999px;background:rgba(243,246,251,.22);position:relative;cursor:pointer;transition:background .15s}
+.switch input::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:transform .15s}
+.switch input:checked{background:#3FB471}
+.switch input:checked::after{transform:translateX(18px)}
+
+#status{min-height:1.5em;margin:14px 2px 10px;color:var(--muted);font-size:.95rem}
+#status.err{color:var(--note)}
+
+main{display:grid;gap:14px;padding-bottom:28px}
+@media (min-width:900px){main{grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);align-items:start}
+  #map{position:sticky;top:14px;height:calc(100vh - 28px)!important;max-height:760px}}
+#map{height:300px;border-radius:14px;border:1px solid var(--line);background:#dfe5ec;z-index:0}
+
+/* Empty state before the first search */
+.empty{background:var(--plate);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.empty img{display:block;width:100%;height:auto;aspect-ratio:1400/781;object-fit:cover}
+.empty p{margin:0;padding:16px 18px 18px;color:var(--muted);max-width:52ch}
+
+/* Result plates, styled after the pickup-times plate on a box */
+ol{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+li{background:var(--plate);border:1px solid var(--line);border-left:5px solid var(--line);border-radius:10px;padding:14px 16px 12px;cursor:pointer}
+li:hover{border-left-color:var(--enamel)}
+li.active{border-color:var(--enamel);border-left-color:var(--enamel)}
+li:focus-visible{outline-offset:3px}
+.row{display:flex;justify-content:space-between;gap:12px;align-items:baseline}
+.addr{font-weight:800;font-size:1.08rem;line-height:1.25}
+.dist{font-weight:800;color:var(--enamel);white-space:nowrap}
+.where{color:var(--muted);font-size:.92rem}
+.next{display:inline-block;margin-top:10px;padding:3px 10px 1px;border-radius:6px;background:var(--page);font-weight:600}
+.next.today{background:var(--go-bg);color:var(--go)}
+.sched{margin-top:4px;font-size:.92rem}
+.note{margin-top:6px;font-size:.86rem;color:var(--note)}
+.acts{display:flex;gap:18px;margin-top:10px;font-size:.92rem;font-weight:600}
+.acts a,.acts button{color:var(--enamel);text-decoration:none;background:none;border:0;padding:2px 0}
+.acts a:hover,.acts button:hover{text-decoration:underline}
+.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--plate);color:var(--ink)}
+.leaflet-container a.leaflet-popup-close-button{color:var(--muted)}
+.leaflet-popup-content{font:400 14px/1.45 Overpass,system-ui,sans-serif;margin:12px 14px}
+.leaflet-popup-content .addr{font-size:1rem}
+.box-pin{background:none;border:0}
+.box-pin svg{display:block;transition:transform .15s;transform-origin:50% 100%}
+.box-pin.on svg{transform:scale(1.35)}
+
+footer{color:var(--muted);font-size:.82rem;padding:4px 2px 32px;max-width:80ch}
+footer a{color:inherit}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
 <body>
-<header>
-  <h1>Drop Box Finder</h1>
-  <p>The nearest USPS blue collection boxes, with pickup times.</p>
-</header>
-<div class="controls">
-  <button class="primary" id="locate" type="button">Use my location</button>
-  <form id="searchform">
-    <input id="q" placeholder="or a ZIP code or address" aria-label="ZIP code or address" autocomplete="street-address" enterkeyhint="search">
-    <button type="submit">Search</button>
-  </form>
-  <label class="toggle"><input type="checkbox" id="today"> Goes out today</label>
+<div class="wrap">
+  <header class="lid">
+    <h1>Drop Box Finder</h1>
+    <p>Blue collection boxes near you, and when each one is picked up next.</p>
+    <form class="slot" id="searchform" role="search">
+      <input id="q" placeholder="ZIP code or address" aria-label="ZIP code or address" autocomplete="street-address" enterkeyhint="search">
+      <button type="submit">Search</button>
+    </form>
+    <div class="under">
+      <button class="locate" id="locate" type="button"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="8" cy="8" r="1.8" fill="currentColor"/><path d="M8 0v3M8 13v3M0 8h3M13 8h3" stroke="currentColor" stroke-width="1.6"/></svg>Use my location</button>
+      <label class="switch"><input type="checkbox" id="today"> Only boxes that go out today</label>
+    </div>
+  </header>
+  <div id="status" role="status" aria-live="polite"></div>
+  <main>
+    <div id="map" aria-label="Map of nearby collection boxes"></div>
+    <div>
+      <div class="empty" id="empty">
+        <img src="street.jpg" alt="A blue collection box on a street corner in late-afternoon light" width="1400" height="781">
+        <p>Search a ZIP code or address, or use your location, to see the 20 closest boxes and the next pickup at each one.</p>
+      </div>
+      <ol id="list"></ol>
+    </div>
+  </main>
+  <footer>Box locations and pickup times come from the USPS Store Locator, collected by <a href="https://github.com/iandees/usps-collection-boxes">iandees/usps-collection-boxes</a>. <span id="asof"></span> Address search by <a href="https://nominatim.openstreetmap.org/">Nominatim</a>, map © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>. Not affiliated with USPS. The times posted on the box are the final word. <a href="https://github.com/agcarrier/dropbox-finder">Source</a>.</footer>
 </div>
-<div id="status" role="status" aria-live="polite"></div>
-<main>
-  <div id="map" aria-label="Map of nearby collection boxes"></div>
-  <ol id="list"></ol>
-</main>
-<footer>Data: USPS Store Locator via <a href="https://github.com/iandees/usps-collection-boxes">iandees/usps-collection-boxes</a> (unofficial, refreshed regularly). Map © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>. Address search by <a href="https://nominatim.openstreetmap.org/">Nominatim</a>. Not affiliated with USPS. Check the posted times on the box. <span id="asof"></span></footer>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script type="module">
-import { nextPickup, clock, DAY } from "./pickup.js";
+import { nextPickup, clock, schedule } from "./pickup.js";
 const DATA = "data/";
 const RADIUS_KM = 15, MAX_FILES = 6, SHOW = 20;
 const $ = id => document.getElementById(id);
 const cache = new Map(), dates = new Set();
-let index, last; // last = {lat, lon, label, groups}
+let index, last; // last = {lat, lon, label, groups, pickFirst}
 
 const map = L.map("map").setView([39.5, -98.35], 4);
 L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {maxZoom: 19, attribution: "© OpenStreetMap"}).addTo(map);
 const layer = L.layerGroup().addTo(map);
+
+// A small collection-box glyph instead of Leaflet's default pin
+const pin = (fill) => L.divIcon({className: "box-pin", iconSize: [22, 30], iconAnchor: [11, 29], popupAnchor: [0, -26],
+  html: `<svg width="22" height="30" viewBox="0 0 22 30" aria-hidden="true"><path d="M2 22V10a9 9 0 0 1 18 0v12z" fill="${fill}" stroke="#fff" stroke-width="1.6"/><rect x="6" y="11" width="10" height="2.2" rx="1.1" fill="#fff" opacity=".9"/><path d="M5 22v6M17 22v6" stroke="${fill}" stroke-width="2.4" stroke-linecap="round"/></svg>`});
+const PIN = pin("#1D4E9E");
 
 function km(lat1, lon1, lat2, lon2) {
   const r = Math.PI / 180, a = Math.sin((lat2 - lat1) * r / 2) ** 2 +
@@ -85,21 +164,26 @@ const bboxKm = (lat, lon, b) => km(lat, lon, Math.min(Math.max(lat, b[1]), b[3])
 
 function status(msg, err) { $("status").textContent = msg; $("status").className = err ? "err" : ""; }
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const DAYS = {Mo:"Mon",Tu:"Tue",We:"Wed",Th:"Thu",Fr:"Fri",Sa:"Sat",Su:"Sun"};
-const pretty = t => t ? t.replace(/\b(Mo|Tu|We|Th|Fr|Sa|Su)\b/g, d => DAYS[d]).replace(/;\s*/g, " · ") : "Pickup times not listed";
+
+// USPS data is ALL CAPS. "1105 W CONGRESS ST" -> "1105 W Congress St"
+const KEEP = new Set(["N", "S", "E", "W", "NE", "NW", "SE", "SW", "PO", "US", "FM", "CR", "SR", "II", "III"]);
+const title = s => String(s ?? "").toLowerCase().replace(/[a-z0-9']+/g, w =>
+  KEEP.has(w.toUpperCase()) ? w.toUpperCase() : /^\d/.test(w) ? w : w[0].toUpperCase() + w.slice(1));
+const sentence = s => String(s ?? "").toLowerCase().replace(/(^|[.!?]\s+)([a-z])/g, (_, a, b) => a + b.toUpperCase());
+const DAYNAME = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 function showDate() {
   const d = [...dates].sort()[0]; // oldest file loaded, so the claim holds for every box shown
-  $("asof").textContent = `Box data as of ${new Date(d + "T12:00").toLocaleDateString(undefined, {month: "short", day: "numeric", year: "numeric"})}.`;
+  $("asof").textContent = `Box data as of ${new Date(d + "T12:00").toLocaleDateString(undefined, {month: "long", day: "numeric", year: "numeric"})}.`;
 }
 
 function nextText(t) {
   const n = nextPickup(t);
   if (!n) return "";
-  const when = n.inDays === 0 ? "today" : n.inDays === 1 ? "tomorrow" : DAY[n.day];
+  const when = n.inDays === 0 ? "Today" : n.inDays === 1 ? "Tomorrow" : DAYNAME[n.day];
   const now = new Date(), left = n.min - (now.getHours() * 60 + now.getMinutes());
-  const soon = n.inDays === 0 && left <= 60 ? ` (in ${left} min)` : "";
-  return `<div class="next${n.inDays === 0 ? " today" : ""}">Next pickup ${when} ${clock(n.min)}${soon}</div>`;
+  const soon = n.inDays === 0 && left <= 60 ? `, in ${left} min` : "";
+  return `<div class="next${n.inDays === 0 ? " today" : ""}">Next pickup: ${when}, ${clock(n.min)}${soon}</div>`;
 }
 
 const goesToday = b => nextPickup(b.p.collection_times)?.inDays === 0;
@@ -121,7 +205,7 @@ async function nearest(lat, lon) {
   const ranked = Object.entries(idx).map(([z, b]) => [z, bboxKm(lat, lon, b)]).sort((a, b) => a[1] - b[1]);
   let files = ranked.filter(([, d]) => d <= RADIUS_KM).slice(0, MAX_FILES).map(([z]) => z);
   if (!files.length) files = ranked.slice(0, 2).map(([z]) => z);
-  status(`Loading ${files.length} area file${files.length > 1 ? "s" : ""}…`);
+  status("Loading boxes…");
   const feats = (await Promise.all(files.map(loadFile))).flat();
   // ponytail: groups boxes at the same spot (USPS lists each slot separately)
   const groups = new Map();
@@ -134,28 +218,39 @@ async function nearest(lat, lon) {
   return [...groups.values()].sort((a, b) => a.d - b.d);
 }
 
+function plate(b) {
+  const p = b.p, mi = b.d * 0.621371;
+  const dir = `https://www.google.com/maps/dir/?api=1&destination=${b.lat},${b.lon}`;
+  const extra = [p.indoor === "yes" && "indoors", b.count > 1 && `${b.count} boxes`].filter(Boolean).join(", ");
+  return `<div class="row"><span class="addr">${esc(title(p["addr:street_address"]))}</span><span class="dist">${mi < 0.1 ? Math.round(mi * 5280) + " ft" : mi.toFixed(1) + " mi"}</span></div>
+    <div class="where">${esc(title(p["addr:city"]))}, ${esc(p["addr:state"])} ${esc(p["addr:postcode"])}${extra ? ` (${extra})` : ""}</div>
+    ${nextText(p.collection_times)}
+    <div class="sched">${esc(schedule(p.collection_times))}</div>
+    ${p.note ? `<div class="note">${esc(sentence(p.note))}</div>` : ""}
+    <div class="acts"><a href="${dir}" target="_blank" rel="noopener">Directions</a><button type="button" class="share" data-lat="${b.lat}" data-lon="${b.lon}" data-addr="${esc(title(p["addr:street_address"]))}">Share</button></div>`;
+}
+
 function render() {
   const {lat, lon, label, groups} = last, todayOnly = $("today").checked;
   const boxes = (todayOnly ? groups.filter(goesToday) : groups).slice(0, SHOW);
   layer.clearLayers();
-  L.circleMarker([lat, lon], {radius: 7, color: "#d33", fillOpacity: .9}).addTo(layer).bindTooltip(esc(label)); // label can come from ?q=
+  $("empty").hidden = true;
+  L.circleMarker([lat, lon], {radius: 8, color: "#fff", weight: 3, fillColor: "#D2423A", fillOpacity: 1}).addTo(layer).bindTooltip(esc(label)); // label can come from ?q=
   const list = $("list"); list.innerHTML = "";
   let first;
   boxes.forEach((b, i) => {
-    const p = b.p, mi = b.d * 0.621371;
-    const dir = `https://www.google.com/maps/dir/?api=1&destination=${b.lat},${b.lon}`;
-    const html = `<div class="row"><span class="addr">${esc(p["addr:street_address"])}</span><span class="dist">${mi < 0.1 ? Math.round(mi * 5280) + " ft" : mi.toFixed(1) + " mi"}</span></div>
-      <div class="meta">${esc(p["addr:city"])}, ${esc(p["addr:state"])} ${esc(p["addr:postcode"])}${p.indoor === "yes" ? " · indoor" : ""}${b.count > 1 ? ` · ${b.count} boxes` : ""}</div>
-      ${nextText(p.collection_times)}
-      <div class="meta">Pickup: ${esc(pretty(p.collection_times))}</div>
-      ${p.note ? `<div class="note">${esc(p.note)}</div>` : ""}
-      <div class="meta links"><a href="${dir}" target="_blank" rel="noopener">Directions</a><button type="button" class="share" data-lat="${b.lat}" data-lon="${b.lon}" data-addr="${esc(p["addr:street_address"])}">Share</button></div>`;
-    const m = L.marker([b.lat, b.lon]).addTo(layer).bindPopup(html);
+    const html = plate(b);
+    const m = L.marker([b.lat, b.lon], {icon: PIN, title: title(b.p["addr:street_address"])}).addTo(layer).bindPopup(html);
     const li = document.createElement("li");
     li.tabIndex = 0; li.innerHTML = html;
-    const pick = () => { document.querySelectorAll("li.active").forEach(e => e.classList.remove("active")); li.classList.add("active"); map.setView([b.lat, b.lon], 17); m.openPopup(); };
+    const pick = () => {
+      document.querySelectorAll("li.active, .box-pin.on").forEach(e => e.classList.remove("active", "on"));
+      li.classList.add("active"); m.getElement()?.classList.add("on");
+      map.setView([b.lat, b.lon], 17); m.openPopup();
+    };
+    m.on("click", () => { document.querySelectorAll("li.active, .box-pin.on").forEach(e => e.classList.remove("active", "on")); li.classList.add("active"); m.getElement()?.classList.add("on"); li.scrollIntoView({block: "nearest", behavior: "smooth"}); });
     li.addEventListener("click", e => { if (!e.target.closest("a,button")) pick(); });
-    li.addEventListener("keydown", e => { if (e.key === "Enter") pick(); });
+    li.addEventListener("keydown", e => { if (e.key === "Enter" && e.target === li) pick(); });
     list.appendChild(li);
     if (i === 0) first = pick;
   });
@@ -163,8 +258,8 @@ function render() {
     map.fitBounds(L.latLngBounds([[lat, lon], ...boxes.slice(0, 5).map(b => [b.lat, b.lon])]), {padding: [30, 30], maxZoom: 16});
     if (last.pickFirst) first();
     const n = boxes.length, noun = n === 1 ? "box" : "boxes";
-    status(`${n} nearest ${noun}${todayOnly ? " with a pickup left today" : ""} to ${label}.`);
-  } else status(todayOnly ? "None of the nearby boxes has a pickup left today. Untick “Goes out today” to see them all." : "No collection boxes found nearby.", true);
+    status(`${n} closest ${noun}${todayOnly ? " with a pickup left today" : ""}, near ${label}.`);
+  } else status(todayOnly ? "None of the nearby boxes has a pickup left today. Turn off “Only boxes that go out today” to see them all." : "No collection boxes found nearby.", true);
 }
 
 // url: the shareable query for this search, or "" to keep the user's own location out of the address bar
@@ -173,23 +268,27 @@ async function search(lat, lon, label, url = "", pickFirst = false) {
     last = {lat, lon, label, pickFirst, groups: await nearest(lat, lon)};
     history.replaceState(null, "", location.pathname + url);
     render();
+    // bring map + list into view; the sticky map is a full viewport tall and starts below the header
+    const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    $("status").scrollIntoView({block: "start", behavior: calm ? "auto" : "smooth"});
+    map.invalidateSize();
   }
   catch (e) { status("Couldn't load box data. Check your connection and try again.", true); console.error(e); }
 }
 
 $("locate").onclick = () => {
-  if (!navigator.geolocation) return status("Your browser doesn't support location. Enter a ZIP instead.", true);
+  if (!navigator.geolocation) return status("Your browser doesn't share location. Search a ZIP code or address instead.", true);
   status("Finding you…");
   navigator.geolocation.getCurrentPosition(
     p => search(p.coords.latitude, p.coords.longitude, "you"),
-    () => status("Location was blocked or unavailable. Enter a ZIP instead.", true),
+    () => status("Location is blocked or unavailable. Search a ZIP code or address instead.", true),
     {enableHighAccuracy: true, timeout: 10000});
 };
 
 async function searchZip(zip) {
   const idx = await loadIndex(), b = idx[zip.slice(0, 3)];
-  if (!b) return status(`No data for ZIP ${zip}.`, true);
-  status("Loading…");
+  if (!b) return status(`No boxes on file for ZIP ${zip}.`, true);
+  status("Loading boxes…");
   // center on the boxes in that exact ZIP, falling back to the ZIP3 area's center
   const inZip = (await loadFile(zip.slice(0, 3))).filter(f => f.properties["addr:postcode"] === zip);
   const [lon, lat] = inZip.length
@@ -203,7 +302,7 @@ async function searchAddress(q) {
   const r = await fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=us&q=" + encodeURIComponent(q));
   if (!r.ok) throw new Error("Nominatim " + r.status);
   const [hit] = await r.json();
-  if (!hit) return status("Couldn't find that address. Try adding the city and state, or use a ZIP.", true);
+  if (!hit) return status("Couldn't find that address. Add the city and state, or search a ZIP code.", true);
   search(+hit.lat, +hit.lon, q, "?q=" + encodeURIComponent(q));
 }
 
@@ -217,12 +316,12 @@ async function run(q) {
 $("searchform").onsubmit = e => { e.preventDefault(); run($("q").value); };
 $("today").onchange = () => last && render();
 
-// Share buttons live in both list cards and map popups
+// Share buttons live in both list plates and map popups
 document.addEventListener("click", async e => {
   const btn = e.target.closest("button.share");
   if (!btn) return;
   const url = `${location.origin}${location.pathname}?at=${(+btn.dataset.lat).toFixed(5)},${(+btn.dataset.lon).toFixed(5)}`;
-  const text = `USPS collection box at ${btn.dataset.addr}`;
+  const text = `Collection box at ${btn.dataset.addr}`;
   try {
     if (navigator.share) await navigator.share({title: "Drop box", text, url});
     else { await navigator.clipboard.writeText(url); status("Link copied."); }

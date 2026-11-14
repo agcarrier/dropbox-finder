@@ -1,6 +1,6 @@
 // node test.mjs
 import assert from "node:assert/strict";
-import { nextPickup, clock, week } from "./public/pickup.js";
+import { nextPickup, clock, week, schedule } from "./public/pickup.js";
 
 const at = (day, hh, mm = 0) => new Date(2026, 10, 15 + day, hh, mm); // 2026-11-15 is a Sunday
 const T = "Mo-Fr 16:00; Sa 12:00";
@@ -17,4 +17,7 @@ assert.equal(nextPickup("garbage"), null);
 assert.equal(clock(0), "12:00 AM");
 assert.equal(clock(720), "12:00 PM");
 assert.equal(clock(975), "4:15 PM");
+assert.equal(schedule("Mo-Fr 16:30; Sa 10:30"), "Mon–Fri 4:30 PM, Sat 10:30 AM");
+assert.equal(schedule("Mo 09:00,15:00"), "Mon 9:00 AM & 3:00 PM");
+assert.equal(schedule(undefined), "Pickup times not listed");
 console.log("pickup ok");
