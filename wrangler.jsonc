@@ -1,6 +1,5 @@
-{
-  "name": "dropbox-finder",
-  "compatibility_date": "2026-11-13",
-  "assets": { "directory": "./public" },
-  "routes": [{ "pattern": "boxes.andrewcarrier.dev", "custom_domain": true }]
-}
+{ "name": "dropbox-finder", "main": "src/worker.js", "compatibility_date": "2026-11-13",
+  "assets": { "directory": "./public", "binding": "ASSETS" },
+  "r2_buckets": [{ "binding": "BOXES", "bucket_name": "dropbox-finder-data" }],
+  "triggers": { "crons": ["17 * * * *"] },
+  "routes": [{ "pattern": "boxes.andrewcarrier.dev", "custom_domain": true }] }

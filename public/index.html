@@ -7,8 +7,8 @@
 <meta name="description" content="Find the nearest USPS blue collection box and its pickup times.">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
-:root{--bg:#f6f7f9;--card:#fff;--ink:#14181f;--muted:#5b6472;--line:#e2e5ea;--blue:#1f4fa3;--blue-ink:#fff;--warn:#9a5b00}
-@media (prefers-color-scheme:dark){:root{--bg:#0f1216;--card:#181c22;--ink:#e8ebef;--muted:#9aa3b0;--line:#2a3039;--blue:#5b8be0;--blue-ink:#0b1220;--warn:#e0a648}}
+:root{--bg:#f6f7f9;--card:#fff;--ink:#14181f;--muted:#5b6472;--line:#e2e5ea;--blue:#1f4fa3;--blue-ink:#fff;--warn:#9a5b00;--ok:#1d7a3a}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1216;--card:#181c22;--ink:#e8ebef;--muted:#9aa3b0;--line:#2a3039;--blue:#5b8be0;--blue-ink:#0b1220;--warn:#e0a648;--ok:#5cc47e}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
 header{padding:20px 16px 12px;max-width:960px;margin:auto}
@@ -32,6 +32,12 @@ li:focus-visible,li.active{outline:2px solid var(--blue)}
 .dist{color:var(--blue);font-weight:600;white-space:nowrap}
 .meta{color:var(--muted);font-size:.9rem;margin-top:2px}
 .note{color:var(--warn);font-size:.85rem;margin-top:4px}
+.next{font-size:.9rem;margin-top:2px}
+.next.today{color:var(--ok);font-weight:600}
+.links{display:flex;gap:14px;align-items:center}
+button.share{padding:0;border:0;background:none;color:var(--blue);text-decoration:underline;font-size:.9rem;cursor:pointer}
+label.toggle{display:flex;align-items:center;gap:6px;color:var(--ink);white-space:nowrap}
+label.toggle input{flex:none;width:18px;height:18px;accent-color:var(--blue)}
 a{color:var(--blue)}
 footer{max-width:960px;margin:auto;padding:0 16px 24px;color:var(--muted);font-size:.8rem}
 </style>
@@ -43,25 +49,27 @@ footer{max-width:960px;margin:auto;padding:0 16px 24px;color:var(--muted);font-s
 </header>
 <div class="controls">
   <button class="primary" id="locate" type="button">Use my location</button>
-  <form id="zipform">
-    <input id="zip" inputmode="numeric" pattern="\d{5}" maxlength="5" placeholder="or enter a ZIP code" aria-label="ZIP code" autocomplete="postal-code">
+  <form id="searchform">
+    <input id="q" placeholder="or a ZIP code or address" aria-label="ZIP code or address" autocomplete="street-address" enterkeyhint="search">
     <button type="submit">Search</button>
   </form>
+  <label class="toggle"><input type="checkbox" id="today"> Goes out today</label>
 </div>
 <div id="status" role="status" aria-live="polite"></div>
 <main>
   <div id="map" aria-label="Map of nearby collection boxes"></div>
   <ol id="list"></ol>
 </main>
-<footer>Data: USPS Store Locator via <a href="https://github.com/iandees/usps-collection-boxes">iandees/usps-collection-boxes</a> (unofficial, refreshed regularly). Map © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>. Not affiliated with USPS. Check the posted times on the box.</footer>
+<footer>Data: USPS Store Locator via <a href="https://github.com/iandees/usps-collection-boxes">iandees/usps-collection-boxes</a> (unofficial, refreshed regularly). Map © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>. Address search by <a href="https://nominatim.openstreetmap.org/">Nominatim</a>. Not affiliated with USPS. Check the posted times on the box. <span id="asof"></span></footer>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script>
-const DATA = "https://raw.githubusercontent.com/iandees/usps-collection-boxes/master/data/";
+<script type="module">
+import { nextPickup, clock, DAY } from "./pickup.js";
+const DATA = "data/";
 const RADIUS_KM = 15, MAX_FILES = 6, SHOW = 20;
 const $ = id => document.getElementById(id);
-const cache = new Map();
-let index, markers = [];
+const cache = new Map(), dates = new Set();
+let index, last; // last = {lat, lon, label, groups}
 
 const map = L.map("map").setView([39.5, -98.35], 4);
 L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {maxZoom: 19, attribution: "© OpenStreetMap"}).addTo(map);
@@ -80,11 +88,29 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 const DAYS = {Mo:"Mon",Tu:"Tue",We:"Wed",Th:"Thu",Fr:"Fri",Sa:"Sat",Su:"Sun"};
 const pretty = t => t ? t.replace(/\b(Mo|Tu|We|Th|Fr|Sa|Su)\b/g, d => DAYS[d]).replace(/;\s*/g, " · ") : "Pickup times not listed";
 
+function showDate() {
+  const d = [...dates].sort()[0]; // oldest file loaded, so the claim holds for every box shown
+  $("asof").textContent = `Box data as of ${new Date(d + "T12:00").toLocaleDateString(undefined, {month: "short", day: "numeric", year: "numeric"})}.`;
+}
+
+function nextText(t) {
+  const n = nextPickup(t);
+  if (!n) return "";
+  const when = n.inDays === 0 ? "today" : n.inDays === 1 ? "tomorrow" : DAY[n.day];
+  const now = new Date(), left = n.min - (now.getHours() * 60 + now.getMinutes());
+  const soon = n.inDays === 0 && left <= 60 ? ` (in ${left} min)` : "";
+  return `<div class="next${n.inDays === 0 ? " today" : ""}">Next pickup ${when} ${clock(n.min)}${soon}</div>`;
+}
+
+const goesToday = b => nextPickup(b.p.collection_times)?.inDays === 0;
+
 async function loadIndex() { return index ??= await (await fetch("index.json")).json(); }
 
 async function loadFile(z3) {
   if (!cache.has(z3)) cache.set(z3, fetch(DATA + z3 + ".ndjson").then(r => {
     if (!r.ok) throw new Error("HTTP " + r.status);
+    const d = r.headers.get("x-data-date");
+    if (d) { dates.add(d); showDate(); }
     return r.text();
   }).then(t => t.split("\n").filter(Boolean).map(l => JSON.parse(l))).catch(e => { cache.delete(z3); throw e; }));
   return cache.get(z3);
@@ -105,38 +131,49 @@ async function nearest(lat, lon) {
     const g = groups.get(key);
     if (g) g.count++; else groups.set(key, {lat: y, lon: x, p, count: 1, d: km(lat, lon, y, x)});
   }
-  return [...groups.values()].sort((a, b) => a.d - b.d).slice(0, SHOW);
+  return [...groups.values()].sort((a, b) => a.d - b.d);
 }
 
-function render(lat, lon, boxes, label) {
-  layer.clearLayers(); markers = [];
-  L.circleMarker([lat, lon], {radius: 7, color: "#d33", fillOpacity: .9}).addTo(layer).bindTooltip(label);
+function render() {
+  const {lat, lon, label, groups} = last, todayOnly = $("today").checked;
+  const boxes = (todayOnly ? groups.filter(goesToday) : groups).slice(0, SHOW);
+  layer.clearLayers();
+  L.circleMarker([lat, lon], {radius: 7, color: "#d33", fillOpacity: .9}).addTo(layer).bindTooltip(esc(label)); // label can come from ?q=
   const list = $("list"); list.innerHTML = "";
+  let first;
   boxes.forEach((b, i) => {
     const p = b.p, mi = b.d * 0.621371;
     const dir = `https://www.google.com/maps/dir/?api=1&destination=${b.lat},${b.lon}`;
     const html = `<div class="row"><span class="addr">${esc(p["addr:street_address"])}</span><span class="dist">${mi < 0.1 ? Math.round(mi * 5280) + " ft" : mi.toFixed(1) + " mi"}</span></div>
       <div class="meta">${esc(p["addr:city"])}, ${esc(p["addr:state"])} ${esc(p["addr:postcode"])}${p.indoor === "yes" ? " · indoor" : ""}${b.count > 1 ? ` · ${b.count} boxes` : ""}</div>
+      ${nextText(p.collection_times)}
       <div class="meta">Pickup: ${esc(pretty(p.collection_times))}</div>
       ${p.note ? `<div class="note">${esc(p.note)}</div>` : ""}
-      <div class="meta"><a href="${dir}" target="_blank" rel="noopener">Directions</a></div>`;
+      <div class="meta links"><a href="${dir}" target="_blank" rel="noopener">Directions</a><button type="button" class="share" data-lat="${b.lat}" data-lon="${b.lon}" data-addr="${esc(p["addr:street_address"])}">Share</button></div>`;
     const m = L.marker([b.lat, b.lon]).addTo(layer).bindPopup(html);
-    markers.push(m);
     const li = document.createElement("li");
     li.tabIndex = 0; li.innerHTML = html;
     const pick = () => { document.querySelectorAll("li.active").forEach(e => e.classList.remove("active")); li.classList.add("active"); map.setView([b.lat, b.lon], 17); m.openPopup(); };
-    li.addEventListener("click", e => { if (e.target.tagName !== "A") pick(); });
+    li.addEventListener("click", e => { if (!e.target.closest("a,button")) pick(); });
     li.addEventListener("keydown", e => { if (e.key === "Enter") pick(); });
     list.appendChild(li);
+    if (i === 0) first = pick;
   });
   if (boxes.length) {
     map.fitBounds(L.latLngBounds([[lat, lon], ...boxes.slice(0, 5).map(b => [b.lat, b.lon])]), {padding: [30, 30], maxZoom: 16});
-    status(`${boxes.length} nearest boxes to ${label}.`);
-  } else status("No collection boxes found nearby.", true);
+    if (last.pickFirst) first();
+    const n = boxes.length, noun = n === 1 ? "box" : "boxes";
+    status(`${n} nearest ${noun}${todayOnly ? " with a pickup left today" : ""} to ${label}.`);
+  } else status(todayOnly ? "None of the nearby boxes has a pickup left today. Untick “Goes out today” to see them all." : "No collection boxes found nearby.", true);
 }
 
-async function search(lat, lon, label) {
-  try { render(lat, lon, await nearest(lat, lon), label); }
+// url: the shareable query for this search, or "" to keep the user's own location out of the address bar
+async function search(lat, lon, label, url = "", pickFirst = false) {
+  try {
+    last = {lat, lon, label, pickFirst, groups: await nearest(lat, lon)};
+    history.replaceState(null, "", location.pathname + url);
+    render();
+  }
   catch (e) { status("Couldn't load box data. Check your connection and try again.", true); console.error(e); }
 }
 
@@ -149,22 +186,54 @@ $("locate").onclick = () => {
     {enableHighAccuracy: true, timeout: 10000});
 };
 
-$("zipform").onsubmit = async e => {
-  e.preventDefault();
-  const zip = $("zip").value.trim();
-  if (!/^\d{5}$/.test(zip)) return status("Enter a 5-digit ZIP code.", true);
+async function searchZip(zip) {
+  const idx = await loadIndex(), b = idx[zip.slice(0, 3)];
+  if (!b) return status(`No data for ZIP ${zip}.`, true);
+  status("Loading…");
+  // center on the boxes in that exact ZIP, falling back to the ZIP3 area's center
+  const inZip = (await loadFile(zip.slice(0, 3))).filter(f => f.properties["addr:postcode"] === zip);
+  const [lon, lat] = inZip.length
+    ? inZip.reduce((s, f) => [s[0] + f.geometry.coordinates[0] / inZip.length, s[1] + f.geometry.coordinates[1] / inZip.length], [0, 0])
+    : [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
+  search(lat, lon, "ZIP " + zip, "?zip=" + zip);
+}
+
+async function searchAddress(q) {
+  status("Looking up that address…");
+  const r = await fetch("https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=us&q=" + encodeURIComponent(q));
+  if (!r.ok) throw new Error("Nominatim " + r.status);
+  const [hit] = await r.json();
+  if (!hit) return status("Couldn't find that address. Try adding the city and state, or use a ZIP.", true);
+  search(+hit.lat, +hit.lon, q, "?q=" + encodeURIComponent(q));
+}
+
+async function run(q) {
+  q = q.trim();
+  if (!q) return status("Enter a ZIP code or an address.", true);
+  try { await (/^\d{5}$/.test(q) ? searchZip(q) : searchAddress(q)); }
+  catch (err) { status("Couldn't finish that search. Check your connection and try again.", true); console.error(err); }
+}
+
+$("searchform").onsubmit = e => { e.preventDefault(); run($("q").value); };
+$("today").onchange = () => last && render();
+
+// Share buttons live in both list cards and map popups
+document.addEventListener("click", async e => {
+  const btn = e.target.closest("button.share");
+  if (!btn) return;
+  const url = `${location.origin}${location.pathname}?at=${(+btn.dataset.lat).toFixed(5)},${(+btn.dataset.lon).toFixed(5)}`;
+  const text = `USPS collection box at ${btn.dataset.addr}`;
   try {
-    const idx = await loadIndex(), b = idx[zip.slice(0, 3)];
-    if (!b) return status(`No data for ZIP ${zip}.`, true);
-    status("Loading…");
-    // center on the boxes in that exact ZIP, falling back to the ZIP3 area's center
-    const inZip = (await loadFile(zip.slice(0, 3))).filter(f => f.properties["addr:postcode"] === zip);
-    const [lon, lat] = inZip.length
-      ? inZip.reduce((s, f) => [s[0] + f.geometry.coordinates[0] / inZip.length, s[1] + f.geometry.coordinates[1] / inZip.length], [0, 0])
-      : [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
-    search(lat, lon, "ZIP " + zip);
-  } catch (err) { status("Couldn't load box data. Check your connection and try again.", true); console.error(err); }
-};
+    if (navigator.share) await navigator.share({title: "Drop box", text, url});
+    else { await navigator.clipboard.writeText(url); status("Link copied."); }
+  } catch (err) { if (err.name !== "AbortError") status("Couldn't share. Copy this link: " + url, true); }
+});
+
+// Restore a shared or bookmarked search
+const qs = new URLSearchParams(location.search);
+const at = qs.get("at")?.match(/^(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/);
+if (at) search(+at[1], +at[2], "the shared box", location.search, true);
+else if (qs.get("zip") || qs.get("q")) { $("q").value = qs.get("zip") || qs.get("q"); run($("q").value); }
 </script>
 </body>
 </html>
