@@ -1,0 +1,6 @@
+{
+  "name": "dropbox-finder",
+  "compatibility_date": "2026-11-13",
+  "assets": { "directory": "./public" },
+  "routes": [{ "pattern": "boxes.andrewcarrier.dev", "custom_domain": true }]
+}

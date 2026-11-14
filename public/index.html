@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drop Box Finder</title>
+<meta name="description" content="Find the nearest USPS blue collection box and its pickup times.">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#14181f;--muted:#5b6472;--line:#e2e5ea;--blue:#1f4fa3;--blue-ink:#fff;--warn:#9a5b00}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1216;--card:#181c22;--ink:#e8ebef;--muted:#9aa3b0;--line:#2a3039;--blue:#5b8be0;--blue-ink:#0b1220;--warn:#e0a648}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{padding:20px 16px 12px;max-width:960px;margin:auto}
+h1{margin:0 0 4px;font-size:1.5rem;letter-spacing:-.01em}
+header p{margin:0;color:var(--muted)}
+.controls{display:flex;flex-wrap:wrap;gap:8px;padding:0 16px 12px;max-width:960px;margin:auto}
+button,input{font:inherit;border-radius:10px;border:1px solid var(--line);padding:10px 14px;background:var(--card);color:var(--ink)}
+button.primary{background:var(--blue);color:var(--blue-ink);border-color:var(--blue);font-weight:600}
+form{display:flex;gap:8px;flex:1;min-width:240px}
+input{flex:1;min-width:0}
+#status{max-width:960px;margin:auto;padding:0 16px 8px;color:var(--muted);min-height:1.5em}
+#status.err{color:var(--warn)}
+main{max-width:960px;margin:auto;padding:0 16px 32px;display:grid;gap:12px}
+@media (min-width:800px){main{grid-template-columns:1fr 1fr}#map{height:calc(100vh - 200px)!important;position:sticky;top:12px}}
+#map{height:320px;border-radius:12px;border:1px solid var(--line)}
+ol{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+li{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;cursor:pointer}
+li:focus-visible,li.active{outline:2px solid var(--blue)}
+.row{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.addr{font-weight:600}
+.dist{color:var(--blue);font-weight:600;white-space:nowrap}
+.meta{color:var(--muted);font-size:.9rem;margin-top:2px}
+.note{color:var(--warn);font-size:.85rem;margin-top:4px}
+a{color:var(--blue)}
+footer{max-width:960px;margin:auto;padding:0 16px 24px;color:var(--muted);font-size:.8rem}
+</style>
+</head>
+<body>
+<header>
+  <h1>Drop Box Finder</h1>
+  <p>The nearest USPS blue collection boxes, with pickup times.</p>
+</header>
+<div class="controls">
+  <button class="primary" id="locate" type="button">Use my location</button>
+  <form id="zipform">
+    <input id="zip" inputmode="numeric" pattern="\d{5}" maxlength="5" placeholder="or enter a ZIP code" aria-label="ZIP code" autocomplete="postal-code">
+    <button type="submit">Search</button>
+  </form>
+</div>
+<div id="status" role="status" aria-live="polite"></div>
+<main>
+  <div id="map" aria-label="Map of nearby collection boxes"></div>
+  <ol id="list"></ol>
+</main>
+<footer>Data: USPS Store Locator via <a href="https://github.com/iandees/usps-collection-boxes">iandees/usps-collection-boxes</a> (unofficial, refreshed regularly). Map © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>. Not affiliated with USPS. Check the posted times on the box.</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const DATA = "https://raw.githubusercontent.com/iandees/usps-collection-boxes/master/data/";
+const RADIUS_KM = 15, MAX_FILES = 6, SHOW = 20;
+const $ = id => document.getElementById(id);
+const cache = new Map();
+let index, markers = [];
+
+const map = L.map("map").setView([39.5, -98.35], 4);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {maxZoom: 19, attribution: "© OpenStreetMap"}).addTo(map);
+const layer = L.layerGroup().addTo(map);
+
+function km(lat1, lon1, lat2, lon2) {
+  const r = Math.PI / 180, a = Math.sin((lat2 - lat1) * r / 2) ** 2 +
+    Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin((lon2 - lon1) * r / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(a));
+}
+// distance from point to the nearest edge of a bbox [minLon,minLat,maxLon,maxLat]
+const bboxKm = (lat, lon, b) => km(lat, lon, Math.min(Math.max(lat, b[1]), b[3]), Math.min(Math.max(lon, b[0]), b[2]));
+
+function status(msg, err) { $("status").textContent = msg; $("status").className = err ? "err" : ""; }
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const DAYS = {Mo:"Mon",Tu:"Tue",We:"Wed",Th:"Thu",Fr:"Fri",Sa:"Sat",Su:"Sun"};
+const pretty = t => t ? t.replace(/\b(Mo|Tu|We|Th|Fr|Sa|Su)\b/g, d => DAYS[d]).replace(/;\s*/g, " · ") : "Pickup times not listed";
+
+async function loadIndex() { return index ??= await (await fetch("index.json")).json(); }
+
+async function loadFile(z3) {
+  if (!cache.has(z3)) cache.set(z3, fetch(DATA + z3 + ".ndjson").then(r => {
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.text();
+  }).then(t => t.split("\n").filter(Boolean).map(l => JSON.parse(l))).catch(e => { cache.delete(z3); throw e; }));
+  return cache.get(z3);
+}
+
+async function nearest(lat, lon) {
+  const idx = await loadIndex();
+  const ranked = Object.entries(idx).map(([z, b]) => [z, bboxKm(lat, lon, b)]).sort((a, b) => a[1] - b[1]);
+  let files = ranked.filter(([, d]) => d <= RADIUS_KM).slice(0, MAX_FILES).map(([z]) => z);
+  if (!files.length) files = ranked.slice(0, 2).map(([z]) => z);
+  status(`Loading ${files.length} area file${files.length > 1 ? "s" : ""}…`);
+  const feats = (await Promise.all(files.map(loadFile))).flat();
+  // ponytail: groups boxes at the same spot (USPS lists each slot separately)
+  const groups = new Map();
+  for (const f of feats) {
+    const [x, y] = f.geometry.coordinates, p = f.properties;
+    const key = `${x.toFixed(5)},${y.toFixed(5)}|${p["addr:street_address"]}`;
+    const g = groups.get(key);
+    if (g) g.count++; else groups.set(key, {lat: y, lon: x, p, count: 1, d: km(lat, lon, y, x)});
+  }
+  return [...groups.values()].sort((a, b) => a.d - b.d).slice(0, SHOW);
+}
+
+function render(lat, lon, boxes, label) {
+  layer.clearLayers(); markers = [];
+  L.circleMarker([lat, lon], {radius: 7, color: "#d33", fillOpacity: .9}).addTo(layer).bindTooltip(label);
+  const list = $("list"); list.innerHTML = "";
+  boxes.forEach((b, i) => {
+    const p = b.p, mi = b.d * 0.621371;
+    const dir = `https://www.google.com/maps/dir/?api=1&destination=${b.lat},${b.lon}`;
+    const html = `<div class="row"><span class="addr">${esc(p["addr:street_address"])}</span><span class="dist">${mi < 0.1 ? Math.round(mi * 5280) + " ft" : mi.toFixed(1) + " mi"}</span></div>
+      <div class="meta">${esc(p["addr:city"])}, ${esc(p["addr:state"])} ${esc(p["addr:postcode"])}${p.indoor === "yes" ? " · indoor" : ""}${b.count > 1 ? ` · ${b.count} boxes` : ""}</div>
+      <div class="meta">Pickup: ${esc(pretty(p.collection_times))}</div>
+      ${p.note ? `<div class="note">${esc(p.note)}</div>` : ""}
+      <div class="meta"><a href="${dir}" target="_blank" rel="noopener">Directions</a></div>`;
+    const m = L.marker([b.lat, b.lon]).addTo(layer).bindPopup(html);
+    markers.push(m);
+    const li = document.createElement("li");
+    li.tabIndex = 0; li.innerHTML = html;
+    const pick = () => { document.querySelectorAll("li.active").forEach(e => e.classList.remove("active")); li.classList.add("active"); map.setView([b.lat, b.lon], 17); m.openPopup(); };
+    li.addEventListener("click", e => { if (e.target.tagName !== "A") pick(); });
+    li.addEventListener("keydown", e => { if (e.key === "Enter") pick(); });
+    list.appendChild(li);
+  });
+  if (boxes.length) {
+    map.fitBounds(L.latLngBounds([[lat, lon], ...boxes.slice(0, 5).map(b => [b.lat, b.lon])]), {padding: [30, 30], maxZoom: 16});
+    status(`${boxes.length} nearest boxes to ${label}.`);
+  } else status("No collection boxes found nearby.", true);
+}
+
+async function search(lat, lon, label) {
+  try { render(lat, lon, await nearest(lat, lon), label); }
+  catch (e) { status("Couldn't load box data. Check your connection and try again.", true); console.error(e); }
+}
+
+$("locate").onclick = () => {
+  if (!navigator.geolocation) return status("Your browser doesn't support location. Enter a ZIP instead.", true);
+  status("Finding you…");
+  navigator.geolocation.getCurrentPosition(
+    p => search(p.coords.latitude, p.coords.longitude, "you"),
+    () => status("Location was blocked or unavailable. Enter a ZIP instead.", true),
+    {enableHighAccuracy: true, timeout: 10000});
+};
+
+$("zipform").onsubmit = async e => {
+  e.preventDefault();
+  const zip = $("zip").value.trim();
+  if (!/^\d{5}$/.test(zip)) return status("Enter a 5-digit ZIP code.", true);
+  try {
+    const idx = await loadIndex(), b = idx[zip.slice(0, 3)];
+    if (!b) return status(`No data for ZIP ${zip}.`, true);
+    status("Loading…");
+    // center on the boxes in that exact ZIP, falling back to the ZIP3 area's center
+    const inZip = (await loadFile(zip.slice(0, 3))).filter(f => f.properties["addr:postcode"] === zip);
+    const [lon, lat] = inZip.length
+      ? inZip.reduce((s, f) => [s[0] + f.geometry.coordinates[0] / inZip.length, s[1] + f.geometry.coordinates[1] / inZip.length], [0, 0])
+      : [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
+    search(lat, lon, "ZIP " + zip);
+  } catch (err) { status("Couldn't load box data. Check your connection and try again.", true); console.error(err); }
+};
+</script>
+</body>
+</html>
